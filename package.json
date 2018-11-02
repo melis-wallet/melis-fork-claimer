@@ -1,0 +1,27 @@
+{
+  "name": "melis-fork-claimer",
+  "description": "Code to claim coins on bitcoin forks",
+  "author": "Alessandro Polverini",
+  "license": "ISC",
+  "version": "0.5.1",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/melis-wallet/melis-fork-claimer.git"
+  },
+  "keywords": [
+    "bitcoin",
+    "melis",
+    "melis-wallet"
+  ],
+  "bugs": {
+    "url": "https://github.com/melis-wallet/melis-fork-claimer/issues"
+  },
+  "homepage": "https://github.com/melis-wallet/melis-fork-claimer#readme",
+  "dependencies": {
+    "melis-api-js": "^0.11.20"
+  }
+}
