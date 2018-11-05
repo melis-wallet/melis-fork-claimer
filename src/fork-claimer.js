@@ -741,7 +741,7 @@ class ForkClaimer {
       return this.hashForSignature_legacy(ins, inputToSign, inScript, outs, hashType)
   }
 
-  // OLD CODE
+  // OLD CODE? TODO: Verificare
   verifyClaimProposal(claim, unspent, targetAddress) {
     const unspents = claim.unspents
     const recipients = claim.recipients
@@ -835,3 +835,5 @@ class ForkClaimer {
     }
   }
 }
+
+module.exports = ForkClaimer
