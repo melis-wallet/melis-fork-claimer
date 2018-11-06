@@ -215,6 +215,13 @@ function writeUInt64LE(buffer, value, offset) {
   return offset + 8
 }
 
+function deriveAddressKeys(melis, account, unspents) {
+  unspents.forEach(u => {
+    const aa = u.aa
+    u.key = melis.deriveMyHdAccount(account.num, aa.chain, aa.hdindex, account.coin)
+  })
+}
+
 // Explorers for unspents:
 // BTCP: http://explorer.btcprivate.org/api/addr/b1Cg6wsJaaDACjnoLGmmm75bAYCEzN1GTvF/utxo
 // BTG : https://explorer.bitcoingold.org/insight-api/addr/GVN41nnJW52MgNYvy4X1P4FTRrBXNNyb6V/utxo
@@ -387,21 +394,6 @@ function toScriptSignature(sig, hashType) {
   return Buffer.concat([sig.toDER(), hashTypeBuffer])
 }
 
-function writeTxInfo(par) {
-  console.log("=====")
-  console.log("Input transaction: " + par.inputHash + " / " + par.inputOut)
-  console.log("prevOutScript: " + par.prevOutScript.toString('hex'))
-  console.log("unspent address: " + par.unspentAddress)
-  console.log("Signing key: " + par.key.toWIF() + " " + par.key.d.toHex())
-  console.log("Signing public key: " + par.key.getPublicKeyBuffer().toString('hex'))
-  console.log("sourceAddress: " + par.sourceAddress)
-  console.log("targetAddress: " + par.targetAddress + " " + par.targetAddressHash.toString('hex') + " amount: " + par.targetAmount.toString(16))
-  console.log("outscript: " + par.outScript.toString('hex'))
-  console.log("hashForSignature: " + par.hashForSignature.toString('hex'))
-  console.log("scriptSig: " + par.scriptSig.toString('hex'))
-  console.log("=====")
-}
-
 class ForkClaimer {
 
   constructor(claimedCoin) {
@@ -471,6 +463,10 @@ class ForkClaimer {
       return utxoApi(addrs, options)
     else
       throw ("No UTXO provider for " + this.forkInfo.name)
+  }
+
+  async getPossibleUnspents(melis, account) {
+    return await melis.getUnspentsAtBlock(account, this.getForkHeight())
   }
 
   convertToCoinAddress(btcAddress) {
@@ -784,14 +780,6 @@ class ForkClaimer {
       console.log("Preparing signature for:", u)
       const inputScript = Buffer.from(u.inputScript, 'base64')
       console.log("Input Script: " + inputScript.toString('hex'))
-      // if (u.aa.redeemScript)
-      // redeemScript= Buffer.from(u.aa.redeemScript, 'base64')
-      // else {
-      //   const decoded = Bitcoin.address.fromBase58Check(u.aa.address)
-      //   console.log("Decoded address: ", decoded)
-      //   redeemScript = bscript.pubKeyHash.output.encode(decoded.hash)
-      // }
-      //const hashForSignature = this.hashForSignature_legacy(Buffer.from(u.hash, 'hex').reverse(), u.n, inputScript, tx.outs, Bitcoin.Transaction.SIGHASH_ALL)
 
       const ins = [{
         hash: Buffer.from(u.hash, 'hex').reverse(),
@@ -807,26 +795,6 @@ class ForkClaimer {
       const key = melis.deriveMyHdAccount(account.num, aa.chain, aa.hdindex)
       const signature = key.sign(hashForSignature)
       signatures.push(signature.toDER().toString('hex'))
-
-      //   // TODO MULTISIG!?
-      //   const redeemScript = Buffer.from(accountAddress.redeemScript, "hex")
-      //   const decoded = Bitcoin.address.fromBase58Check(u.aa.address)
-      //   console.log("Decoded address: ", decoded)
-      //   scriptSig = bscript.pubKeyHash.output.encode(decoded.hash)
-      // } else
-      //   scriptSig = Buffer.from(u.inputScript, 'base64')
-      // console.log("scriptSig: ", scriptSig.toString('hex'))
-      // const key = info.key
-      // let signature = key.sign(hashForSignature)
-      // if (Buffer.isBuffer(signature))
-      //   signature = Bitcoin.ECSignature.fromRSBuffer(signature)
-      // // console.log("Signature:", signature)
-      // const scriptSignature = toScriptSignature(signature, this.forkInfo.signtype) // Bitcoin.Transaction.SIGHASH_ALL
-      // console.log("scriptSignature:", scriptSignature.toString('hex'))
-      // //const scriptSig = bscript.compile(Bitcoin.script.pubKeyHash.input.encodeStack(scriptSignature, key.getPublicKeyBuffer()))
-      // const scriptSig = bscript.compile([scriptSignature, key.getPublicKeyBuffer()])
-      // //console.log("ScriptSig:", scriptSig.toString('hex'))
-      // tx.setInputScript(i, scriptSig)
     }
     console.log("TX:", tx)
     return {
@@ -834,6 +802,57 @@ class ForkClaimer {
       signatures
     }
   }
+
+  async scanFork(melis, accounts, doDebug) {
+    const claimer = this
+    const result = []
+    for (let i = 0; i < accounts.length; i++) {
+      const account = accounts[i]
+      console.log("scanning account " + account.pubId + " type: " + account.type + " meta: " + JSON.stringify(account.meta))
+      if (account.type !== '2' && account.type !== 'H') {
+        console.log("Skipping account " + account.pubId + " of unsupported type " + account.type)
+        continue
+      }
+      const possibleUnspents = await claimer.getPossibleUnspents(melis, account)
+      const candidates = possibleUnspents.unspents
+      console.log("scanning " + account.pubId + " " + account.type + " with #candidates: " + candidates.length)
+      if (!candidates || !candidates.length)
+        continue
+      deriveAddressKeys(melis, account, candidates)
+      const res = await claimer.findUnspentTxOuts(candidates, doDebug)
+      const unspents = res.unspents
+      const infos = res.infos
+      if (!unspents || !unspents.length)
+        continue
+      const totSatoshis = unspents.reduce((acc, o) => acc + parseInt(o.satoshis), 0)
+      const claimable = []
+      unspents.forEach(unspent => {
+        const info = infos[unspent.address]
+        //console.log("info:", info)
+        //console.log("unspent:", unspent)
+        claimable.push({
+          hash: unspent.txid,
+          n: unspent.vout,
+          amount: unspent.satoshis,
+          aa: info.aa,
+          address: info.btcAddress
+        })
+      })
+      result.push({
+        claimer,
+        claimable,
+        account,
+        unspents,
+        infos,
+        totSatoshis,
+        numCandidates: candidates.length
+      })
+      console.log("Account #" + i + ": " + account.pubId + " type: " + account.type + " #candidates: " + candidates.length +
+        " #Unspents: " + unspents.length + " total satoshis: " + totSatoshis + " " + (totSatoshis / 100000000) + " " + claimer.getCoin())
+    }
+    return result
+  }
+
 }
 
 module.exports = ForkClaimer
