@@ -191,11 +191,18 @@ async function myJsonFetch(url, options) {
     console.log("JSONFETCH " + url)
   return fetch(url, options).catch(err => {
     console.error('myJsonFetch err: ' + err.message)
-    // }).then(res => res.json()).catch(err => {
-    //   console.error('myJsonFetch toJson err: ' + err.message)
+  }).catch(err => {
+    console.log("Fetch error", err)
+    return null
   }).then(res => {
-    //console.log("FETCH RES:", res)
+    if (!res || !res.ok) {
+      console.log(`Invalid fetch response from ${url} status: ${res.status} ${res.statusText}`)
+      return null
+    }
     return res.json()
+  }).catch(err => {
+    console.log("JSON conversion error", err)
+    return null
   }).then(json => {
     if (options.doDebug)
       console.log("json: ", json)
@@ -251,6 +258,10 @@ async function lbtcQueryUtxo(addrs, options) {
     const url = baseAddrUrl + "getaddressbalance?param=" + address
     console.log("Loading " + url)
     const addrStats = await myJsonFetch(url, fetchOptions)
+    if (!addrStats) {
+      console.log("Invalid response from LBTC")
+      return []
+    }
     //await sleep(1100)
     if (addrStats.result > 1)
       goodOnes.push({
@@ -285,6 +296,10 @@ async function bcdQueryUtxo(addrs, options) {
     const url = baseAddrUrl + address
     console.log("Loading " + url)
     const addrStats = await myJsonFetch(url, fetchOptions)
+    if (!addrStats) {
+      console.log("Invalid response from BCD explorer")
+      return []
+    }
     const data = addrStats.data
     //console.log(data)
     await sleep(1100)
@@ -313,12 +328,12 @@ async function bcdQueryUtxo(addrs, options) {
       const url = basePageUrl + (page + 1)
       console.log("Loading " + url)
       const info = await myJsonFetch(url, fetchOptions)
-      const txData = info.data
-      await sleep(1000)
-      if (!txData || !txData.list) {
-        console.log("Unable to load info for " + address)
+      if (!info || !info.data || !info.data.list) {
+        console.log("Unable to load BCD info for " + address)
         continue
       }
+      await sleep(1000)
+      const txData = info.data
       const list = txData.list
       //console.log("TX list size: " + list.length, list)
       list.forEach(l => {
@@ -358,7 +373,10 @@ async function insightQueryUtxo(baseApi, addrs, options) {
     }
     const url = baseApi + "addrs/" + slice.join(',') + "/utxo?noCache=1"
     const x = await myJsonFetch(url, options)
-    res = res.concat(x)
+    if (!x)
+      console.log("Invalid response for insight api: " + url)
+    else
+      res = res.concat(x)
   }
   return res
 }
@@ -737,7 +755,6 @@ class ForkClaimer {
       return this.hashForSignature_legacy(ins, inputToSign, inScript, outs, hashType)
   }
 
-  // OLD CODE? TODO: Verificare
   verifyClaimProposal(claim, unspent, targetAddress) {
     const unspents = claim.unspents
     const recipients = claim.recipients
@@ -851,6 +868,30 @@ class ForkClaimer {
         " #Unspents: " + unspents.length + " total satoshis: " + totSatoshis + " " + (totSatoshis / 100000000) + " " + claimer.getCoin())
     }
     return result
+  }
+
+  async redeem(melis, params) {
+    const account = params.account
+    const targetCoin = params.targetCoin
+    const unspents = params.unspents
+    const targetAddress = params.targetAddress
+    const claimProposal = await melis.prepareUnspentForkClaim({
+      account,
+      targetCoin,
+      targetAddress,
+      unspents
+    })
+    console.log("Claim proposal: ", claimProposal)
+    const verified = this.verifyClaimProposal(claimProposal, unspent, targetAddress)
+    if (!verified)
+      console.log("Claim does not meet minimum sanity checks")
+    if (!params.ignoreVerification)
+      doExit()
+    const claimSignatures = this.prepareSignaturesForClaim(melis, claimProposal)
+    const broadcastResult = await melis.submitForkClaim(claimSignatures.id, claimSignatures.signatures)
+    //const broadcastResult = await submitClaim(claimSignatures)
+    console.log("Transaction submitted correctly:", broadcastResult)
+    return broadcastResult.hash
   }
 
 }
