@@ -185,6 +185,7 @@ function sleep(ms) {
 async function myJsonFetch(url, options) {
   if (!options)
     options = {}
+  options['no-cors'] = true
   if (!options.timeout)
     options.timeout = 20000
   if (options.doDebug)
