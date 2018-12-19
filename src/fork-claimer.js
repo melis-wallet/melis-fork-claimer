@@ -186,6 +186,7 @@ async function myJsonFetch(url, options) {
   if (!options)
     options = {}
   options['no-cors'] = true
+  options['mode'] = 'no-cors'
   if (!options.timeout)
     options.timeout = 20000
   if (options.doDebug)
@@ -768,7 +769,7 @@ class ForkClaimer {
     let unspentsMatch = unspents.length === 1
     const u = unspents[0]
     unspentsMatch = unspentsMatch && (u.hash === unspent.hash && u.n === unspent.n)
-    console.log("HasTargetAddres: " + hasTargetAddress + " fees: " + networkFees + " unspentsMatch: " + unspentsMatch)
+    console.log("[verifyClaimProposal] HasTargetAddres: " + hasTargetAddress + " fees: " + networkFees + " unspentsMatch: " + unspentsMatch)
     return unspentsMatch && hasTargetAddress
   }
 
@@ -883,11 +884,14 @@ class ForkClaimer {
       unspents
     })
     console.log("Claim proposal: ", claimProposal)
+    if (unspents.length !== 1)
+      throw "Unexpected number of unspents (should be 1): " + unspents.length
+    const unspent = unspents[0]
     const verified = this.verifyClaimProposal(claimProposal, unspent, targetAddress)
     if (!verified)
-      console.log("Claim does not meet minimum sanity checks")
-    if (!params.ignoreVerification)
-      doExit()
+      throw "Claim does not meet minimum sanity checks"
+    //if (!params.ignoreVerification)
+    //  doExit()
     const claimSignatures = this.prepareSignaturesForClaim(melis, claimProposal)
     const broadcastResult = await melis.submitForkClaim(claimSignatures.id, claimSignatures.signatures)
     //const broadcastResult = await submitClaim(claimSignatures)
