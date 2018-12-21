@@ -7,13 +7,8 @@ const bs58check = require('bs58check')
 const MELIS = require('melis-api-js')
 const varuint = require('varuint-bitcoin')
 const Bitcoin = MELIS.Bitcoin
-const bscript = Bitcoin.script
 const bcrypto = Bitcoin.crypto
-
-//const Bitcoin = require('bitcoinjs-lib')
-//const OPCODES = Bitcoin.opcodes
-//const payments = Bitcoin.payments
-//let Bitcoin
+//const bscript = Bitcoin.script
 
 // Address converter tests
 // P2SH   3L9XoqFjwWCiqpDVvHFXroNKPuyy87v143 -> BTCP bxuZxSTk47esMjk5b8DytwyYdjGxVudZ2rq
@@ -21,16 +16,6 @@ const bcrypto = Bitcoin.crypto
 // P2PKH: 17BfWLPhL8T6cee6TkJ513wPfR79Ddca6T -> BTCP b1AesBXEh5HVCjvxfQtj3bYv5HgpDUozDBs
 
 const FORKS = {
-  B2X: {
-    fork: 501451,
-    name: "Segwit2X",
-    signtype: 0x31, // 0x31 = 49
-    signid: 0x62, // 0x31<<1
-    isB2X: true,
-    // signtype: 0,
-    // signid: 0x31 << 8, // 0x31 49
-    insightApi: "https://explorer.b2x-segwit.io/b2x-insight-api/"
-  },
   BCD: {
     fork: 495866,
     name: "Bitcoin Diamond",
@@ -109,6 +94,16 @@ const FORKS = {
     insightApi: "http://block.superbtc.org/insight-api/"
   },
   /*
+  B2X: {
+    fork: 501451,
+    name: "Segwit2X",
+    signtype: 0x31, // 0x31 = 49
+    signid: 0x62, // 0x31<<1
+    isB2X: true,
+    // signtype: 0,
+    // signid: 0x31 << 8, // 0x31 49
+    insightApi: "https://explorer.b2x-segwit.io/b2x-insight-api/"
+  },
   BTW: {
     fork: 499777,
     name: "Bitcoin World"
@@ -188,7 +183,7 @@ async function myJsonFetch(url, options) {
   options['no-cors'] = true
   options['mode'] = 'no-cors'
   if (!options.timeout)
-    options.timeout = 20000
+    options.timeout = 30000
   if (options.doDebug)
     console.log("JSONFETCH " + url)
   return fetch(url, options).catch(err => {
