@@ -15,6 +15,8 @@ const bcrypto = Bitcoin.crypto
 // P2PKH: 1JH6b8DcfMW4eX9ir865zPaZJnoqzpeE5M -> BTCP b1MkJGK4cQWYAmoUHoGX4atZEw4WvFaqPH1
 // P2PKH: 17BfWLPhL8T6cee6TkJ513wPfR79Ddca6T -> BTCP b1AesBXEh5HVCjvxfQtj3bYv5HgpDUozDBs
 
+const BSV_MIGRATED_ACCOUNT_NAME = "BSV Claimed Coins"
+
 const FORKS = {
   BCD: {
     fork: 495866,
@@ -93,6 +95,14 @@ const FORKS = {
     extraBytes: Buffer.from("0473627463", 'hex'),
     insightApi: "http://block.superbtc.org/insight-api/"
   },
+  BSV: {
+    fork: 478558,
+    name: "Bitcoin SV",
+    bip143: true,
+    signtype: 0x41,
+    signid: 0x41,
+    insightApi: "https://bchsvexplorer.com/api/"
+  }
   /*
   B2X: {
     fork: 501451,
@@ -222,7 +232,7 @@ function writeUInt64LE(buffer, value, offset) {
 function deriveAddressKeys(melis, account, unspents) {
   unspents.forEach(u => {
     const aa = u.aa
-    u.key = melis.deriveMyHdAccount(account.num, aa.chain, aa.hdindex, account.coin)
+    u.key = melis.deriveAddressKey(account.num, aa.chain, aa.hdindex)
   })
 }
 
@@ -427,7 +437,17 @@ class ForkClaimer {
   }
 
   static getCoins() {
-    return Object.keys(FORKS)
+    return Object.keys(FORKS).filter(c => c !== 'BSV')
+  }
+
+  static accountsForPrinting(accounts) {
+    let res = "#Accounts: " + Object.keys(accounts).length
+    Object.keys(accounts).forEach(pubId => {
+      const a = accounts[pubId]
+      const name = a.meta ? a.meta.name : "[no name]"
+      res += "\n" + pubId + " " + a.coin + " " + a.type + " " + name
+    })
+    return res
   }
 
   getCoin() {
@@ -583,10 +603,6 @@ class ForkClaimer {
   }
 
   hashForSignature_legacy(ins, inIndex, inScript, outs, hashType) {
-    if (ins.length !== 1)
-      throw ("Only one input supported in hashForSignature_legacy")
-
-    const txIn = ins[0]
     const buffer = Buffer.allocUnsafe(2000)
     let offset = 0
 
@@ -629,12 +645,16 @@ class ForkClaimer {
       writeSlice(this.forkInfo.bcdGarbage)
 
     // Number of inputs
-    writeVarInt(1)
+    writeVarInt(ins.length)
 
-    writeSlice(txIn.hash)
-    writeUInt32(txIn.index)
-    writeVarSlice(inScript)
-    writeUInt32(Bitcoin.Transaction.DEFAULT_SEQUENCE)
+    for (let i = 0; i < ins.length; i++) {
+      const txIn = ins[i]
+      writeSlice(txIn.hash)
+      writeUInt32(txIn.index)
+      if (i == inIndex)
+        writeVarSlice(inScript)
+      writeUInt32(Bitcoin.Transaction.DEFAULT_SEQUENCE)
+    }
 
     // ins.forEach(function (txIn) {
     //   writeSlice(txIn.hash)
@@ -698,7 +718,7 @@ class ForkClaimer {
     // hashPrevOuts
     tbuffer = Buffer.allocUnsafe(36 * ins.length)
     toffset = 0
-    ins.forEach(function (txIn) {
+    ins.forEach(txIn => {
       writeSlice(txIn.hash)
       writeUInt32(txIn.index)
     })
@@ -707,22 +727,22 @@ class ForkClaimer {
     // hashSequence
     tbuffer = Buffer.allocUnsafe(4 * ins.length)
     toffset = 0
-    ins.forEach(function (txIn) {
-      writeUInt32(txIn.sequence)
-    })
+    ins.forEach(txIn => writeUInt32(txIn.sequence))
     const hashSequence = bcrypto.hash256(tbuffer)
 
     // hashOutputs
-    const txOutsSize = outs.reduce(function (sum, output) {
-      return sum + 8 + varSliceSize(output.script)
+    const txOutsSize = outs.reduce(function (sum, out) {
+      return sum + 8 + varSliceSize(out.script)
     }, 0)
     tbuffer = Buffer.allocUnsafe(txOutsSize)
     toffset = 0
-    outs.forEach(function (out) {
+    outs.forEach(out => {
       writeUInt64(out.value)
       writeVarSlice(out.script)
+      //console.log("[REMOVEME] out amount: " + out.value + " script: " + out.script.toString('hex'));
     })
 
+    //console.log("[REMOVEME] outputsToHash: " + tbuffer.toString('hex'));
     const hashOutputs = bcrypto.hash256(tbuffer)
 
     tbuffer = Buffer.allocUnsafe(156 + varSliceSize(inScript))
@@ -730,18 +750,23 @@ class ForkClaimer {
     const input = ins[inputToSign]
     writeUInt32(this.forkInfo.version)
     writeSlice(hashPrevouts)
+    //console.log("[REMOVEME] getPrevoutHash: " + hashPrevouts.toString('hex'));
     writeSlice(hashSequence)
+    //console.log("[REMOVEME] getSequenceHash: " + hashSequence.toString('hex'));
     writeSlice(input.hash)
     writeUInt32(input.index)
+    //console.log("[REMOVEME] serializedInput: " + input.hash.toString('hex') + " " + input.index);
     writeVarSlice(inScript)
+    //console.log("[REMOVEME] inputScriptBytes: " + inScript.toString('hex'));
     writeUInt64(input.value)
     writeUInt32(input.sequence)
     writeSlice(hashOutputs)
+    //console.log("[REMOVEME] getOutputsHash: " + hashOutputs.toString('hex'));
     writeUInt32(lockTime)
     writeUInt32(this.forkInfo.signid)
     //writeUInt32(this.forkInfo.signid | hashType)
 
-    console.log("BIP143 hash buffer: " + tbuffer.toString('hex'))
+    console.log("input #" + inputToSign + "BIP143 hashForSig: " + tbuffer.toString('hex'))
     return bcrypto.hash256(tbuffer)
   }
 
@@ -752,6 +777,7 @@ class ForkClaimer {
       return this.hashForSignature_legacy(ins, inputToSign, inScript, outs, hashType)
   }
 
+  // TODO: Needs to check a lot more things now
   verifyClaimProposal(claim, unspent, targetAddress) {
     const unspents = claim.unspents
     const recipients = claim.recipients
@@ -759,6 +785,9 @@ class ForkClaimer {
     const outputAmount = recipients.reduce(function (sum, output) {
       return sum + output.amount
     }, 0)
+    console.log("[analyze] unspent:", unspent)
+    console.log("[analyze] unspents:", unspents)
+    console.log("[analyze] recipient:", recipients)
     const networkFees = inputAmount - outputAmount
     const hasTargetAddress = recipients.some(out => out.address === targetAddress)
     let unspentsMatch = unspents.length === 1
@@ -773,44 +802,51 @@ class ForkClaimer {
     const unspents = claim.unspents
     const recipients = claim.recipients
 
+    //console.log("[prepareSignaturesForClaim] unspents:", unspents)
     let inputAmount = 0
     unspents.forEach(u => {
       tx.addInput(Buffer.from(u.hash, 'hex').reverse(), u.n, Bitcoin.Transaction.DEFAULT_SEQUENCE)
       inputAmount += u.amount
     })
 
+    /console.log("[prepareSignaturesForClaim] recipients:", recipients)
     let outputAmount = 0
     recipients.forEach(recipient => {
-      tx.addOutput(Buffer.from(recipient.outScript, 'base64'), recipient.amount)
+      const script = Buffer.from(recipient.outScript, 'base64')
+      //console.log("[REMOVEME] base64 " + recipient.outScript + " -> " + script.toString('hex'))
+      tx.addOutput(script, recipient.amount)
       outputAmount += recipient.amount
     })
 
     const networkFees = inputAmount - outputAmount
     console.log("networkFees: " + networkFees)
 
+    const ins = []
+    unspents.forEach(u => ins.push({
+      hash: Buffer.from(u.hash, 'hex').reverse(),
+      index: u.n,
+      value: u.amount,
+      sequence: Bitcoin.Transaction.DEFAULT_SEQUENCE
+    }))
+
     const signatures = []
     for (let i = 0; i < unspents.length; i++) {
       const u = unspents[i]
-      console.log("Preparing signature for:", u)
-      const inputScript = Buffer.from(u.inputScript, 'base64')
-      console.log("Input Script: " + inputScript.toString('hex'))
-
-      const ins = [{
-        hash: Buffer.from(u.hash, 'hex').reverse(),
-        index: u.n,
-        value: u.amount,
-        sequence: Bitcoin.Transaction.DEFAULT_SEQUENCE
-      }]
-
-      const hashForSignature = this.hashForSignature(ins, 0, inputScript, tx.outs, Bitcoin.Transaction.SIGHASH_ALL)
-      console.log("hash for sig: ", hashForSignature.toString('hex'))
-      const account = claim.account
       const aa = u.aa
-      const key = melis.deriveMyHdAccount(account.num, aa.chain, aa.hdindex)
-      const signature = key.sign(hashForSignature)
-      signatures.push(signature.toDER().toString('hex'))
+      if (aa) {
+        console.log("Preparing signature for input#:" + i, u)
+        const inputScript = Buffer.from(u.inputScript, 'base64')
+        //console.log("Input Script: " + inputScript.toString('hex'))
+
+        const hashForSignature = this.hashForSignature(ins, i, inputScript, tx.outs, Bitcoin.Transaction.SIGHASH_ALL)
+        //console.log("input #" + i + " hashForSig: ", hashForSignature.toString('hex'))
+        const account = claim.account
+        const key = melis.deriveAddressKey(account.num, aa.chain, aa.hdindex)
+        const signature = key.sign(hashForSignature)
+        signatures.push(signature.toDER().toString('hex'))
+      }
     }
-    console.log("TX:", tx)
+    //console.log("TX:", tx)
     return {
       id: claim.id,
       signatures
@@ -879,14 +915,13 @@ class ForkClaimer {
       unspents
     })
     console.log("Claim proposal: ", claimProposal)
-    if (unspents.length !== 1)
-      throw "Unexpected number of unspents (should be 1): " + unspents.length
-    const unspent = unspents[0]
-    const verified = this.verifyClaimProposal(claimProposal, unspent, targetAddress)
-    if (!verified)
-      throw "Claim does not meet minimum sanity checks"
-    //if (!params.ignoreVerification)
-    //  doExit()
+    // TODO: Riabilitare il controllo?
+    // const unspent = unspents[0]
+    // const verified = this.verifyClaimProposal(claimProposal, unspent, targetAddress)
+    // if (!verified)
+    //   throw "Claim does not meet minimum sanity checks"
+    // //if (!params.ignoreVerification)
+    // //  doExit()
     const claimSignatures = this.prepareSignaturesForClaim(melis, claimProposal)
     const broadcastResult = await melis.submitForkClaim(claimSignatures.id, claimSignatures.signatures)
     //const broadcastResult = await submitClaim(claimSignatures)
@@ -894,6 +929,108 @@ class ForkClaimer {
     return broadcastResult.hash
   }
 
+  async findExistingBSVAccount(melis) {
+    const accounts = melis.peekAccounts()
+    //console.log("PEEKED ACCOUNTS:\n", ForkClaimer.accountsForPrinting(accounts))
+    const pubId = Object.keys(accounts).find(pubId => accounts[pubId].coin === "BSV" && accounts[pubId].meta && accounts[pubId].meta.migrationInfo === BSV_MIGRATED_ACCOUNT_NAME)
+    //const filtered = accounts.filter(a => a.coin === "BSV" && a.meta && a.meta.migrationInfo === BSV_MIGRATED_ACCOUNT_NAME)
+    console.log("[findExistingBSVAccount] existing BSV account: ", pubId)
+    if (pubId)
+      return pubId
+    const creationOptions = {
+      coin: 'BSV',
+      type: MELIS.C.TYPE_PLAIN_HD,
+      meta: {
+        name: "Claimed BSV",
+        migrationInfo: BSV_MIGRATED_ACCOUNT_NAME
+      }
+    }
+    console.log("Creating account with options:", creationOptions)
+    const res = await melis.accountCreate(creationOptions)
+    console.log("Created BSV account: ", res)
+    return res.account.pubId
+  }
+
+
+  async bsvScan(melis, accounts, doDebug) {
+    try {
+      const bchDriver = melis.getCoinDriver('BCH')
+      const res = {}
+
+      for (let i = 0; i < accounts.length; i++) {
+        const account = accounts[i]
+        if (account.type !== '2' && account.type !== 'H') {
+          console.log("Skipping account " + account.pubId + " of unsupported type " + account.type)
+          continue
+        }
+        console.log("scanning account " + account.pubId + " type: " + account.type + " meta: " + JSON.stringify(account.meta))
+        const slice = await melis.addressesGet(account)
+        //console.log("slice result: " + slice)
+        if (!slice.list) {
+          console.log("No addresses on melis for account " + account.pubId)
+          continue
+        }
+        const addrs = slice.list.map(aa => bchDriver.toLegacyAddress(aa.address))
+        if (doDebug)
+          console.log("#Addresses: " + addrs.length + "\n", addrs)
+        const utxos = await this.queryUtxos(addrs, {
+          doDebug
+        })
+        if (doDebug)
+          console.log("utxos:", utxos)
+        if (utxos.length)
+          res[account.pubId] = {
+            utxos,
+            account
+          }
+      }
+      return res
+    } catch (err) {
+      console.log("bsvScan Ex:", err)
+    }
+  }
+
+  async bsvRedeem(melis, params) {
+    try {
+      const account = params.account
+      const utxos = params.utxos
+      let targetAddress = params.targetAddress
+      if (params && params.doDebug)
+        console.log("[BSV CLAIM] utxos: ", utxos)
+      if (!account)
+        throw ("Missing account in parameters")
+      if (!utxos || !utxos.length)
+        throw ("Missing utxos in parameters")
+
+      if (!targetAddress) {
+        const pubId = await this.findExistingBSVAccount(melis)
+        const aa = await melis.getPaymentAddressViaRest(pubId, {
+          info: 'BSV Redeemed coins'
+        })
+        if (params && params.doDebug)
+          console.log("Created new aa: ", aa)
+        targetAddress = aa.address
+      }
+
+      console.log("Target BSV address: ", targetAddress)
+      const unspents = utxos.map(u => ({
+        hash: u.txid,
+        n: u.vout,
+        address: u.address
+      }))
+
+      const res = await this.redeem(melis, {
+        account,
+        targetCoin: 'BSV',
+        targetAddress,
+        unspents
+      })
+
+      return res
+    } catch (err) {
+      console.log("bsvRedeem Ex:", err)
+    }
+  }
 }
 
 module.exports = ForkClaimer
