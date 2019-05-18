@@ -22,6 +22,6 @@
   },
   "homepage": "https://github.com/melis-wallet/melis-fork-claimer#readme",
   "dependencies": {
-    "melis-api-js": "^0.11.20"
+    "melis-api-js": "^0.12.1"
   }
 }
