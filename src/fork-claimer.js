@@ -805,11 +805,12 @@ class ForkClaimer {
     //console.log("[prepareSignaturesForClaim] unspents:", unspents)
     let inputAmount = 0
     unspents.forEach(u => {
-      tx.addInput(Buffer.from(u.hash, 'hex').reverse(), u.n, Bitcoin.Transaction.DEFAULT_SEQUENCE)
-      inputAmount += u.amount
-    })
+        tx.addInput(Buffer.from(u.hash, 'hex').reverse(), u.n, Bitcoin.Transaction.DEFAULT_SEQUENCE)
+        inputAmount += u.amount
+      })
 
-    /console.log("[prepareSignaturesForClaim] recipients:", recipients)
+      /
+      console.log("[prepareSignaturesForClaim] recipients:", recipients)
     let outputAmount = 0
     recipients.forEach(recipient => {
       const script = Buffer.from(recipient.outScript, 'base64')
@@ -953,83 +954,79 @@ class ForkClaimer {
 
 
   async bsvScan(melis, accounts, doDebug) {
-    try {
-      const bchDriver = melis.getCoinDriver('BCH')
-      const res = {}
+    const bchDriver = melis.getCoinDriver('BCH')
+    const res = {}
 
-      for (let i = 0; i < accounts.length; i++) {
-        const account = accounts[i]
-        if (account.type !== '2' && account.type !== 'H') {
-          console.log("Skipping account " + account.pubId + " of unsupported type " + account.type)
-          continue
-        }
-        console.log("scanning account " + account.pubId + " type: " + account.type + " meta: " + JSON.stringify(account.meta))
-        const slice = await melis.addressesGet(account)
-        //console.log("slice result: " + slice)
-        if (!slice.list) {
-          console.log("No addresses on melis for account " + account.pubId)
-          continue
-        }
-        const addrs = slice.list.map(aa => bchDriver.toLegacyAddress(aa.address))
-        if (doDebug)
-          console.log("#Addresses: " + addrs.length + "\n", addrs)
-        const utxos = await this.queryUtxos(addrs, {
-          doDebug
-        })
-        if (doDebug)
-          console.log("utxos:", utxos)
-        if (utxos.length)
-          res[account.pubId] = {
-            utxos,
-            account
-          }
+    for (let i = 0; i < accounts.length; i++) {
+      const account = accounts[i]
+      if (account.coin !== 'BCH') {
+        console.log("Skipping account " + account.pubId + " " + account.coin)
+        continue
       }
-      return res
-    } catch (err) {
-      console.log("bsvScan Ex:", err)
+      if (account.type !== '2' && account.type !== 'H') {
+        console.log("Skipping account " + account.pubId + " of unsupported type " + account.type)
+        continue
+      }
+      console.log("scanning account " + account.pubId + " type: " + account.type + " meta: " + JSON.stringify(account.meta))
+      const slice = await melis.addressesGet(account)
+      //console.log("slice result: " + slice)
+      if (!slice.list) {
+        console.log("No addresses on melis for account " + account.pubId)
+        continue
+      }
+      const addrs = slice.list.map(aa => bchDriver.toLegacyAddress(aa.address))
+      if (doDebug)
+        console.log("#Addresses: " + addrs.length + "\n", addrs)
+      const utxos = await this.queryUtxos(addrs, {
+        doDebug
+      })
+      if (doDebug)
+        console.log("utxos:", utxos)
+      if (utxos.length)
+        res[account.pubId] = {
+          utxos,
+          account
+        }
     }
+    return res
   }
 
   async bsvRedeem(melis, params) {
-    try {
-      const account = params.account
-      const utxos = params.utxos
-      let targetAddress = params.targetAddress
-      if (params && params.doDebug)
-        console.log("[BSV CLAIM] utxos: ", utxos)
-      if (!account)
-        throw ("Missing account in parameters")
-      if (!utxos || !utxos.length)
-        throw ("Missing utxos in parameters")
+    const account = params.account
+    const utxos = params.utxos
+    let targetAddress = params.targetAddress
+    if (params && params.doDebug)
+      console.log("[BSV CLAIM] utxos: ", utxos)
+    if (!account)
+      throw ("Missing account in parameters")
+    if (!utxos || !utxos.length)
+      throw ("Missing utxos in parameters")
 
-      if (!targetAddress) {
-        const pubId = await this.findExistingBSVAccount(melis)
-        const aa = await melis.getPaymentAddressViaRest(pubId, {
-          info: 'BSV Redeemed coins'
-        })
-        if (params && params.doDebug)
-          console.log("Created new aa: ", aa)
-        targetAddress = aa.address
-      }
-
-      console.log("Target BSV address: ", targetAddress)
-      const unspents = utxos.map(u => ({
-        hash: u.txid,
-        n: u.vout,
-        address: u.address
-      }))
-
-      const res = await this.redeem(melis, {
-        account,
-        targetCoin: 'BSV',
-        targetAddress,
-        unspents
+    if (!targetAddress) {
+      const pubId = await this.findExistingBSVAccount(melis)
+      const aa = await melis.getPaymentAddressViaRest(pubId, {
+        info: 'BSV Redeemed coins'
       })
-
-      return res
-    } catch (err) {
-      console.log("bsvRedeem Ex:", err)
+      if (params && params.doDebug)
+        console.log("Created new aa: ", aa)
+      targetAddress = aa.address
     }
+
+    console.log("Target BSV address: ", targetAddress)
+    const unspents = utxos.map(u => ({
+      hash: u.txid,
+      n: u.vout,
+      address: u.address
+    }))
+
+    const res = await this.redeem(melis, {
+      account,
+      targetCoin: 'BSV',
+      targetAddress,
+      unspents
+    })
+
+    return res
   }
 }
 
