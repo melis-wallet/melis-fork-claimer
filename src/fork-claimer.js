@@ -805,12 +805,10 @@ class ForkClaimer {
     //console.log("[prepareSignaturesForClaim] unspents:", unspents)
     let inputAmount = 0
     unspents.forEach(u => {
-        tx.addInput(Buffer.from(u.hash, 'hex').reverse(), u.n, Bitcoin.Transaction.DEFAULT_SEQUENCE)
-        inputAmount += u.amount
-      })
-
-      /
-      console.log("[prepareSignaturesForClaim] recipients:", recipients)
+      tx.addInput(Buffer.from(u.hash, 'hex').reverse(), u.n, Bitcoin.Transaction.DEFAULT_SEQUENCE)
+      inputAmount += u.amount
+    })
+    //console.log("[prepareSignaturesForClaim] recipients:", recipients)
     let outputAmount = 0
     recipients.forEach(recipient => {
       const script = Buffer.from(recipient.outScript, 'base64')
