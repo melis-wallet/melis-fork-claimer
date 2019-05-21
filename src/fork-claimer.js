@@ -830,6 +830,8 @@ class ForkClaimer {
       sequence: Bitcoin.Transaction.DEFAULT_SEQUENCE
     }))
 
+    const account = claim.account
+    console.log("# of inputs to sign: " + unspents.length + " account:", account)
     const signatures = []
     for (let i = 0; i < unspents.length; i++) {
       const u = unspents[i]
@@ -838,10 +840,8 @@ class ForkClaimer {
         console.log("Preparing signature for input#:" + i, u)
         const inputScript = Buffer.from(u.inputScript, 'base64')
         //console.log("Input Script: " + inputScript.toString('hex'))
-
         const hashForSignature = this.hashForSignature(ins, i, inputScript, tx.outs, Bitcoin.Transaction.SIGHASH_ALL)
         //console.log("input #" + i + " hashForSig: ", hashForSignature.toString('hex'))
-        const account = claim.account
         const key = melis.deriveAddressKey(account.num, aa.chain, aa.hdindex)
         const signature = key.sign(hashForSignature)
         signatures.push(signature.toDER().toString('hex'))
