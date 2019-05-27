@@ -351,7 +351,7 @@ async function bcdQueryUtxo(addrs, options) {
           if (out.addresses[0] === address && out.spent_n === -1 && out.value > 10) {
             const unspent = {
               address: address,
-              txid: item.hash,
+              txid: item.txid,
               vout: out.n,
               satoshis: out.value
             }
