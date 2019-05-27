@@ -367,7 +367,7 @@ async function bcdQueryUtxo(addrs, options) {
 }
 
 async function insightQueryUtxo(baseApi, addrs, options) {
-  const maxPerQuery = 40
+  const maxPerQuery = 20
   let res = []
   let todo = addrs
   while (todo.length > 0) {
@@ -967,7 +967,7 @@ class ForkClaimer {
       }
       console.log("scanning account " + account.pubId + " type: " + account.type + " meta: " + JSON.stringify(account.meta))
       const slice = await melis.addressesGet(account)
-      console.log("slice result: " + slice.list)
+      // console.log("slice result: " + slice.list)
       if (!slice.list) {
         console.log("No addresses on melis for account " + account.pubId)
         continue
