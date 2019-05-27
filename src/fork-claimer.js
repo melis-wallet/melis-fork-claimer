@@ -967,7 +967,7 @@ class ForkClaimer {
       }
       console.log("scanning account " + account.pubId + " type: " + account.type + " meta: " + JSON.stringify(account.meta))
       const slice = await melis.addressesGet(account)
-      //console.log("slice result: " + slice)
+      console.log("slice result: " + slice.list)
       if (!slice.list) {
         console.log("No addresses on melis for account " + account.pubId)
         continue
