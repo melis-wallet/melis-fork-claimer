@@ -990,7 +990,7 @@ class ForkClaimer {
   }
 
   async bsvRedeem(melis, params) {
-    const bsvDriver = melis.getCoinDriver(C.COIN_PROD_BSV)
+    const bsvDriver = melis.getCoinDriver('BSV')
     const account = params.account
     const utxos = params.utxos
     let targetAddress = params.targetAddress
