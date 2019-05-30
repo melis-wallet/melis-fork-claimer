@@ -194,8 +194,8 @@ async function myJsonFetch(url, options) {
   options['mode'] = 'no-cors'
   if (!options.timeout)
     options.timeout = 30000
-  if (options.doDebug)
-    console.log("JSONFETCH " + url)
+  //if (options.doDebug)
+  console.log("JSONFETCH " + url)
   return fetch(url, options).catch(err => {
     console.error('myJsonFetch err: ' + err.message)
   }).catch(err => {
@@ -367,7 +367,7 @@ async function bcdQueryUtxo(addrs, options) {
 }
 
 async function insightQueryUtxo(baseApi, addrs, options) {
-  const maxPerQuery = 20
+  const maxPerQuery = 50
   let res = []
   let todo = addrs
   while (todo.length > 0) {
@@ -990,6 +990,7 @@ class ForkClaimer {
   }
 
   async bsvRedeem(melis, params) {
+    const bsvDriver = melis.getCoinDriver(C.COIN_PROD_BSV)
     const account = params.account
     const utxos = params.utxos
     let targetAddress = params.targetAddress
@@ -1007,7 +1008,7 @@ class ForkClaimer {
       })
       if (params && params.doDebug)
         console.log("Created new aa: ", aa)
-      targetAddress = aa.address
+      targetAddress = bsvDriver.toLegacyAddress(aa.address)
     }
 
     console.log("Target BSV address: ", targetAddress)
