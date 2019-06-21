@@ -104,6 +104,10 @@ const FORKS = {
     insightApi: "https://bchsvexplorer.com/api/"
   }
   /*
+  BTC2: {
+    fork: 507850,
+    name "Bitcoin2"
+  }
   B2X: {
     fork: 501451,
     name: "Segwit2X",
@@ -953,6 +957,7 @@ class ForkClaimer {
 
   async bsvScan(melis, accounts, doDebug) {
     const bchDriver = melis.getCoinDriver('BCH')
+    const maxSliceSize = 20
     const res = {}
 
     for (let i = 0; i < accounts.length; i++) {
@@ -966,23 +971,44 @@ class ForkClaimer {
         continue
       }
       console.log("scanning account " + account.pubId + " type: " + account.type + " meta: " + JSON.stringify(account.meta))
-      const slice = await melis.addressesGet(account)
-      // console.log("slice result: " + slice.list)
-      if (!slice.list) {
-        console.log("No addresses on melis for account " + account.pubId)
-        continue
-      }
-      const addrs = slice.list.map(aa => bchDriver.toLegacyAddress(aa.address))
-      if (doDebug)
-        console.log("#Addresses: " + addrs.length + "\n", addrs)
-      const utxos = await this.queryUtxos(addrs, {
-        doDebug
-      })
-      if (doDebug)
-        console.log("utxos:", utxos)
-      if (utxos.length)
+
+      let numCheckedAddrs = 0
+      let slicePage = 0
+      let unspents = []
+      do {
+        const slice = await melis.addressesGet(account, {
+          page: slicePage++,
+          size: maxSliceSize
+        })
+        // console.log("slicePage: " + slicePage + " maxSliceSize: " + maxSliceSize + " slice result: ", slice)
+
+        if (!slice.list) {
+          console.log("No addresses on melis for account " + account.pubId)
+          break
+        }
+
+        const addrs = slice.list.map(aa => bchDriver.toLegacyAddress(aa.address))
+        if (doDebug)
+          console.log("slicePage: " + slicePage + " maxSliceSize: " + maxSliceSize + " #Addresses: " + addrs.length + "\n", addrs)
+
+        numCheckedAddrs += addrs.length
+        const utxos = await this.queryUtxos(addrs, {
+          doDebug
+        })
+        if (doDebug)
+          console.log("utxos:", utxos)
+
+        if (utxos.length)
+          unspents = unspents.concat(utxos)
+
+        if (!slice.hasNext)
+          break
+      } while (true)
+
+      console.log("#unspents found: " + unspents.length + " numCheckedAddrs: " + numCheckedAddrs + " slices used: " + slicePage + " (sliceSize:" + maxSliceSize + ")")
+      if (unspents.length)
         res[account.pubId] = {
-          utxos,
+          utxos: unspents,
           account
         }
     }
