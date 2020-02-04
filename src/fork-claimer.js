@@ -2,7 +2,8 @@
 // Written by Alessandro Polverini for Melis Wallet -- melis.io
 //
 
-const fetch = require('node-fetch')
+const isNode = (require('detect-node') && !('electron' in global.process.versions))
+const nodeFetch = require('node-fetch')
 const bs58check = require('bs58check')
 const MELIS = require('melis-api-js')
 const varuint = require('varuint-bitcoin')
@@ -192,14 +193,15 @@ function sleep(ms) {
 }
 
 async function myJsonFetch(url, options) {
+  const fetch = isNode ? nodeFetch : window.fetch
   if (!options)
     options = {}
-  options['no-cors'] = true
-  options['mode'] = 'no-cors'
+  //options['no-cors'] = true
+  //options['mode'] = 'no-cors'
   if (!options.timeout)
     options.timeout = 30000
   //if (options.doDebug)
-  console.log("JSONFETCH " + url)
+  console.log("isNode: " + isNode + " JSONFETCH " + url)
   return fetch(url, options).catch(err => {
     console.error('myJsonFetch err: ' + err.message)
   }).catch(err => {
@@ -404,7 +406,7 @@ async function insightBroadcastTx(baseApi, tx) {
     })
   }
   console.log("POSTING TO " + url, options)
-  return fetch(url, options).catch(err => {
+  return nodeFetch(url, options).catch(err => {
     console.error('insightBroadcastTx err: ' + err.message)
   }).then(res => {
     console.log("SEND TX RES status:" + res.status + " " + res.statusText)
@@ -953,7 +955,6 @@ class ForkClaimer {
     console.log("Created BSV account: ", res)
     return res.account.pubId
   }
-
 
   async bsvScan(melis, accounts, doDebug) {
     const bchDriver = melis.getCoinDriver('BCH')
