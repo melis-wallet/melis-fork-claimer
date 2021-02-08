@@ -198,10 +198,8 @@ const FORKS = {
   */
 }
 
-function sleep(ms) {
-  return new Promise(resolve => {
-    setTimeout(resolve, ms)
-  })
+async function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 async function myJsonFetch(url, options) {
@@ -233,10 +231,6 @@ async function myJsonFetch(url, options) {
       console.log("json: ", json)
     return json
   })
-}
-
-async function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 async function loadJsonUrl(url, params, options) {
