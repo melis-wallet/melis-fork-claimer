@@ -16,7 +16,7 @@ const bcrypto = Bitcoin.crypto
 // P2PKH: 1JH6b8DcfMW4eX9ir865zPaZJnoqzpeE5M -> BTCP b1MkJGK4cQWYAmoUHoGX4atZEw4WvFaqPH1
 // P2PKH: 17BfWLPhL8T6cee6TkJ513wPfR79Ddca6T -> BTCP b1AesBXEh5HVCjvxfQtj3bYv5HgpDUozDBs
 
-const BSV_MIGRATED_ACCOUNT_NAME = "BSV Claimed Coins"
+const MIGRATED_ACCOUNT_NAME_SUFFIX = " Claimed Coins"
 
 const FORKS = {
   BCD: {
@@ -97,12 +97,24 @@ const FORKS = {
     insightApi: "http://block.superbtc.org/insight-api/"
   },
   BSV: {
+    forkedCoin: 'BCH',
     fork: 478558,
     name: "Bitcoin SV",
     bip143: true,
     signtype: 0x41,
     signid: 0x41,
-    insightApi: "https://bchsvexplorer.com/api/"
+    requiresAddressConversion: true,
+    insightApi: "https://bchsvexplorer.com/api/",
+    blockchair: "bitcoin-sv"
+  },
+  ABC: {
+    forkedCoin: 'BCH',
+    fork: 661648,
+    name: "Bitcoin ABC",
+    bip143: true,
+    signtype: 0x41,
+    signid: 0x41,
+    blockchair: "bitcoin-abc"
   }
   /*
   BTC2: {
@@ -221,6 +233,37 @@ async function myJsonFetch(url, options) {
       console.log("json: ", json)
     return json
   })
+}
+
+async function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function loadJsonUrl(url, params, options) {
+  if (!params)
+    params = {}
+  if (!params.timeout)
+    params.timeout = 30000
+  if (!options)
+    options = {}
+  if (options.doDebug)
+    console.log("Loading JSON from url: " + url)
+  // params['no-cors'] = true
+  // params['mode'] = 'no-cors'
+  try {
+    const res = await fetch(url, params)
+    if (options.doDebug)
+      console.log("api result:", res)
+    if (res.status !== 200)
+      if (!options || !options.okErrorCodes || !options.okErrorCodes.includes(res.status)) {
+        console.log("URL returned error " + res.status + ": " + JSON.stringify(res))
+        return null
+      }
+    return res.json()
+  } catch (ex) {
+    console.log("Unable to read from " + url + JSON.stringify(ex))
+    return null
+  }
 }
 
 function varSliceSize(someScript) {
@@ -372,6 +415,54 @@ async function bcdQueryUtxo(addrs, options) {
   return unspents
 }
 
+const BLOCKCHAIR_BASE_URL = "https://api.blockchair.com/"
+async function blockchairQueryUtxo(coinName, addrs, options) {
+  const maxQuerySize = 100
+  const unspents = []
+  let fromIndex = 0
+  if (!options)
+    options = {}
+  options.okErrorCodes = [404]
+  while (fromIndex < addrs.length) {
+    const slice = addrs.slice(fromIndex, fromIndex + maxQuerySize)
+    fromIndex += maxQuerySize
+    const url = BLOCKCHAIR_BASE_URL + coinName + "/dashboards/addresses/" + slice.join(',') + "?limit=1000"
+    console.log("Querying " + slice.length + " addrs in batch mode from blockchair.com. URL len: " + url.length)
+    const res = await loadJsonUrl(url, {}, options)
+    if (!res)
+      return null
+    if (!res.data)
+      continue
+    const utxo = res.data.utxo
+    utxo.forEach(o => {
+      const unspent = {
+        txid: o.transaction_hash,
+        vout: o.index,
+        satoshis: o.value,
+        address: o.address,
+        height: o.block_id
+      }
+      unspents.push(unspent)
+    })
+    if (fromIndex < addrs.length)
+      await sleep(2000)
+  }
+  return unspents
+}
+
+/*
+Res: array di
+{
+address: "GK18bp4UzC6wqYKKNLkaJ3hzQazTc3TWBw",
+txid: "c023f27a94e218c96302d2d7652b4cf57a54fa921f9c945c802c661c9ebf6dc4",
+vout: 0,
+scriptPubKey: "76a9140cb60a52559620e5de9a297612d49f55f7fd14ea88ac",
+amount: 0.73881797,
+satoshis: 73881797,
+confirmations: 0,
+ts: 1611588708
+}
+*/
 async function insightQueryUtxo(baseApi, addrs, options) {
   const maxPerQuery = 50
   let res = []
@@ -442,8 +533,10 @@ class ForkClaimer {
       this.forkInfo.coinratio = 1
   }
 
+  static getMelis() { return MELIS }
+
   static getCoins() {
-    return Object.keys(FORKS).filter(c => c !== 'BSV')
+    return Object.keys(FORKS).filter(c => c !== 'BSV' && c !== 'ABC')
   }
 
   static accountsForPrinting(accounts) {
@@ -485,13 +578,17 @@ class ForkClaimer {
 
   supportsUtxoQuery() {
     const forkInfo = this.forkInfo
-    return !!forkInfo.insightApi || !!forkInfo.utxoApi
+    return !!forkInfo.blockchair || !!forkInfo.insightApi || !!forkInfo.utxoApi
   }
 
   async queryUtxos(addrs, options) {
+    const blockchair = this.forkInfo.blockchair
     const insightApi = this.forkInfo.insightApi
     const utxoApi = this.forkInfo.utxoApi
-    if (insightApi) {
+    if (blockchair) {
+      const res = await blockchairQueryUtxo(blockchair, addrs, options)
+      return res.filter(u => u.satoshis > this.forkInfo.coinratio)
+    } else if (insightApi) {
       const res = await insightQueryUtxo(insightApi, addrs, options)
       if (Array.isArray(res)) {
         res.forEach(o => {
@@ -511,6 +608,8 @@ class ForkClaimer {
   }
 
   convertToCoinAddress(btcAddress) {
+    if (!btcAddress.match('^[13].+'))
+      return btcAddress
     //console.log("Request to convert " + btcAddress + " to format " + this.forkInfo.name + " format")
     const {
       version,
@@ -576,19 +675,13 @@ class ForkClaimer {
       })
     }
     if (!addrs.length)
-      return {
-        unspents: [],
-        infos: {}
-      }
+      return { unspents: [], infos: {} }
 
     if (self.supportsUtxoQuery())
       return await self.queryUtxos(addrs, {
         doDebug
       }).then(nativeUnspents => {
-        return {
-          unspents: nativeUnspents,
-          infos
-        }
+        return { unspents: nativeUnspents, infos }
       })
     else {
       // TODO: Usare un explorer per verificare se effettivamente unspent
@@ -601,10 +694,7 @@ class ForkClaimer {
           satoshis: u.amount
         })
       })
-      return {
-        unspents,
-        infos
-      }
+      return { unspents, infos }
     }
   }
 
@@ -934,32 +1024,35 @@ class ForkClaimer {
     return broadcastResult.hash
   }
 
-  async findExistingBSVAccount(melis) {
+  async findExistingMigratedAccount(melis, claimedCoin) {
     const accounts = melis.peekAccounts()
     //console.log("PEEKED ACCOUNTS:\n", ForkClaimer.accountsForPrinting(accounts))
-    const pubId = Object.keys(accounts).find(pubId => accounts[pubId].coin === "BSV" && accounts[pubId].meta && accounts[pubId].meta.migrationInfo === BSV_MIGRATED_ACCOUNT_NAME)
-    //const filtered = accounts.filter(a => a.coin === "BSV" && a.meta && a.meta.migrationInfo === BSV_MIGRATED_ACCOUNT_NAME)
-    console.log("[findExistingBSVAccount] existing BSV account: ", pubId)
+    const pubId = Object.keys(accounts).find(pubId =>
+      accounts[pubId].coin === claimedCoin &&
+      accounts[pubId].meta && accounts[pubId].meta.migrationInfo === claimedCoin + MIGRATED_ACCOUNT_NAME_SUFFIX
+    )
+    console.log("[findExistingMigratedAccount] existing " + claimedCoin + " account: ", pubId)
     if (pubId)
       return pubId
     const creationOptions = {
-      coin: 'BSV',
+      coin: claimedCoin,
       type: MELIS.C.TYPE_PLAIN_HD,
       meta: {
-        name: "Claimed BSV",
-        migrationInfo: BSV_MIGRATED_ACCOUNT_NAME
+        name: "Claimed " + claimedCoin,
+        migrationInfo: claimedCoin + MIGRATED_ACCOUNT_NAME_SUFFIX
       }
     }
     console.log("Creating account with options:", creationOptions)
     const res = await melis.accountCreate(creationOptions)
-    console.log("Created BSV account: ", res)
+    console.log("Created " + claimedCoin + " account: ", res)
     return res.account.pubId
   }
 
-  async bsvScan(melis, accounts, doDebug) {
+  async bchForkScan(melis, accounts, doDebug, dustLimitPar) {
     const bchDriver = melis.getCoinDriver('BCH')
     const maxSliceSize = 20
     const res = {}
+    const dustLimit = dustLimitPar ? dustLimitPar : 5000
 
     for (let i = 0; i < accounts.length; i++) {
       const account = accounts[i]
@@ -977,10 +1070,7 @@ class ForkClaimer {
       let slicePage = 0
       let unspents = []
       do {
-        const slice = await melis.addressesGet(account, {
-          page: slicePage++,
-          size: maxSliceSize
-        })
+        const slice = await melis.addressesGet(account, { page: slicePage++, size: maxSliceSize })
         // console.log("slicePage: " + slicePage + " maxSliceSize: " + maxSliceSize + " slice result: ", slice)
 
         if (!slice.list) {
@@ -988,14 +1078,12 @@ class ForkClaimer {
           break
         }
 
-        const addrs = slice.list.map(aa => bchDriver.toLegacyAddress(aa.address))
+        const addrs = slice.list.map(aa => this.requiresAddressConversion ? bchDriver.toLegacyAddress(aa.address) : aa.address)
         if (doDebug)
           console.log("slicePage: " + slicePage + " maxSliceSize: " + maxSliceSize + " #Addresses: " + addrs.length + "\n", addrs)
 
         numCheckedAddrs += addrs.length
-        const utxos = await this.queryUtxos(addrs, {
-          doDebug
-        })
+        const utxos = await this.queryUtxos(addrs, { doDebug })
         if (doDebug)
           console.log("utxos:", utxos)
 
@@ -1006,39 +1094,42 @@ class ForkClaimer {
           break
       } while (true)
 
-      console.log("#unspents found: " + unspents.length + " numCheckedAddrs: " + numCheckedAddrs + " slices used: " + slicePage + " (sliceSize:" + maxSliceSize + ")")
+      const filteredUnspents = unspents.filter(u => u.satoshis >= dustLimit)
+      console.log("#unspents found: " + unspents.length + " #aboveDust(" + dustLimit + "): " + filteredUnspents.length
+        + " #checkedAddrs: " + numCheckedAddrs + " slices used: " + slicePage + " (sliceSize:" + maxSliceSize + ")")
       if (unspents.length)
         res[account.pubId] = {
-          utxos: unspents,
+          utxos: filteredUnspents,
           account
         }
     }
     return res
   }
 
-  async bsvRedeem(melis, params) {
-    const bsvDriver = melis.getCoinDriver('BSV')
+  async redeemBchFork(melis, params) {
+    const claimedCoin = params.claimedCoin
+    const coinDriver = melis.getCoinDriver(claimedCoin)
     const account = params.account
     const utxos = params.utxos
+    const doDebug = params.doDebug
     let targetAddress = params.targetAddress
-    if (params && params.doDebug)
-      console.log("[BSV CLAIM] utxos: ", utxos)
+
+    if (doDebug)
+      console.log("[" + claimedCoin + " CLAIM] utxos: ", utxos)
     if (!account)
       throw ("Missing account in parameters")
     if (!utxos || !utxos.length)
       throw ("Missing utxos in parameters")
 
     if (!targetAddress) {
-      const pubId = await this.findExistingBSVAccount(melis)
-      const aa = await melis.getPaymentAddressViaRest(pubId, {
-        info: 'BSV Redeemed coins'
-      })
-      if (params && params.doDebug)
+      const pubId = await this.findExistingMigratedAccount(melis, claimedCoin)
+      const aa = await melis.getPaymentAddressViaRest(pubId, { info: claimedCoin + ' Redeemed coins' })
+      if (doDebug)
         console.log("Created new aa: ", aa)
-      targetAddress = bsvDriver.toLegacyAddress(aa.address)
+      targetAddress = this.requiresAddressConversion ? coinDriver.toLegacyAddress(aa.address) : aa.address
     }
 
-    console.log("Target BSV address: ", targetAddress)
+    console.log("Target " + claimedCoin + " address: ", targetAddress)
     const unspents = utxos.map(u => ({
       hash: u.txid,
       n: u.vout,
@@ -1047,7 +1138,7 @@ class ForkClaimer {
 
     const res = await this.redeem(melis, {
       account,
-      targetCoin: 'BSV',
+      targetCoin: claimedCoin,
       targetAddress,
       unspents
     })
