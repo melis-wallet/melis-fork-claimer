@@ -1101,7 +1101,7 @@ class ForkClaimer {
   }
 
   async redeemBchFork(melis, params) {
-    const claimedCoin = params.claimedCoin
+    const claimedCoin = this.claimedCoin
     const coinDriver = melis.getCoinDriver(claimedCoin)
     const account = params.account
     const utxos = params.utxos
